@@ -1,5 +1,7 @@
 # ProCam — Kamera Manual untuk Android
 
+**Unduh APK:** [Releases → app-debug.apk](https://github.com/Ugwap/ProCam/releases/latest/download/app-debug.apk)
+
 Aplikasi kamera buatan sendiri (Kotlin + CameraX) untuk pengguna yang butuh **Pro Mode** (ISO, shutter, fokus manual) dan **FPS tidak dikunci di 30**.
 
 Dibuat untuk Poco X7 Pro (Android 15 / HyperOS 2), tetapi berjalan di perangkat Android 8.0+ (minSdk 26) yang mendukung Camera2.
@@ -33,7 +35,9 @@ FPS **tidak bisa dilampaui melebihi kemampuan hardware/HAL**. Aplikasi hanya mem
 
 Build hanya butuh JDK 17 + Android SDK command-line tools + Gradle.
 
-### Cara termudah: unduh APK dari GitHub Actions
+### Cara termudah: unduh APK dari GitHub Release
+
+[**app-debug.apk (v1.0.0)**](https://github.com/Ugwap/ProCam/releases/latest/download/app-debug.apk) — ±6,4 MB, ditandatangani debug key.
 
 Setiap push ke `main` menghasilkan artifact APK. Tag `v*` otomatis membuat Release berisi `app-debug.apk`.
 
