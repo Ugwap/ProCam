@@ -98,7 +98,7 @@ class MainActivity : AppCompatActivity() {
     private var isUpdatingUi = false
     private var isBusy = false
 
-    private val mainExecutor by lazy { ContextCompat.getMainExecutor(this) }
+    private val uiExecutor by lazy { ContextCompat.getMainExecutor(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var recordStartedAt = 0L
 
@@ -303,7 +303,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e(tag, "Gagal membuka kamera", e)
                 Toast.makeText(this, "Kamera tidak dapat dibuka: ${e.message}", Toast.LENGTH_LONG).show()
             }
-        }, mainExecutor)
+        }, uiExecutor)
     }
 
     private fun readHardwareInfo() {
@@ -437,9 +437,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHud() {
         val resolusi = imageCapture?.resolutionInfo?.resolution?.let { "${it.width}x${it.height}" }
-        val fpsText = fpsRange?.let { "≤${it.upper}fps" } ?: "auto"
-        val proText = if (proEnabled) "ISO $iso · ${formatShutter(shutterNs)}" else "AUTO"
-        binding.hudText.text = listOfNotNull(resolusi, fpsText, proText).joinToString(" · ")
+        val fpsText = fpsRange?.let { "â‰¤${it.upper}fps" } ?: "auto"
+        val proText = if (proEnabled) "ISO $iso Â· ${formatShutter(shutterNs)}" else "AUTO"
+        binding.hudText.text = listOfNotNull(resolusi, fpsText, proText).joinToString(" Â· ")
     }
 
     private fun showFpsDialog() {
@@ -449,7 +449,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val label = mutableListOf("Auto (bawaan kamera)")
-        fpsOptions.forEach { r -> label.add("${r.lower}–${r.upper} fps") }
+        fpsOptions.forEach { r -> label.add("${r.lower}â€“${r.upper} fps") }
 
         val checked = if (fpsRange == null) 0 else fpsOptions.indexOf(fpsRange) + 1
 
@@ -487,7 +487,7 @@ class MainActivity : AppCompatActivity() {
             values
         ).build()
 
-        capture.takePicture(options, mainExecutor, object : ImageCapture.OnImageSavedCallback {
+        capture.takePicture(options, uiExecutor, object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 isBusy = false
                 val uri = output.savedUri
@@ -548,7 +548,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val waktu = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date())
-            kanvas.drawText("ProCam · $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
+            kanvas.drawText("ProCam Â· $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
 
             contentResolver.openOutputStream(uri, "w")?.use {
                 bmp.compress(Bitmap.CompressFormat.JPEG, 95, it)
@@ -592,7 +592,7 @@ class MainActivity : AppCompatActivity() {
             pending = pending.withAudioEnabled()
         }
 
-        recording = pending.start(mainExecutor) { event ->
+        recording = pending.start(uiExecutor) { event ->
             when (event) {
                 is VideoRecordEvent.Start -> {
                     recordStartedAt = System.currentTimeMillis()
@@ -743,7 +743,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatFocus(diopter: Float): String {
-        if (diopter <= 0.0001f) return "∞"
+        if (diopter <= 0.0001f) return "âˆž"
         val meter = 1f / diopter
         return if (meter >= 1f) String.format(Locale.US, "%.1f m", meter)
         else String.format(Locale.US, "%.0f cm", meter * 100)
