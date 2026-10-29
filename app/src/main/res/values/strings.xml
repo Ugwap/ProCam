@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ProCam</string>
+    <string name="mode_photo">FOTO</string>
+    <string name="mode_video">VIDEO</string>
+    <string name="pro">PRO</string>
+    <string name="reset">Reset</string>
+</resources>

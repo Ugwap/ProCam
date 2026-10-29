@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#FFFFC107</color>
+    <color name="accent_dark">#FF1A1A1A</color>
+    <color name="panel">#B3000000</color>
+    <color name="chip_bg">#66000000</color>
+    <color name="chip_border">#44FFFFFF</color>
+    <color name="ic_launcher_background">#FF111111</color>
+</resources>
