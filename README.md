@@ -24,10 +24,14 @@ Dibuat untuk Poco X7 Pro (HyperOS / Android 17), tetapi berjalan di perangkat An
 - **Rasio foto** 1:1, 4:3, 16:9
   - 4:3 dan 16:9 memakai `setTargetAspectRatio` CameraX
   - 1:1 diambil 4:3 lalu di-crop persegi di tengah setelah capture
+- **Zoom halus (flawless)**
+  - Tombol 1x / 2x / 5x beranimasi linear-zoom (260 ms, decelerate) — tidak melompat
+  - Pinch memakai delta logaritmik sehingga kecepatan zoom konsisten di seluruh rentang
+  - **Tahan** deretan tombol zoom untuk memunculkan **slider zoom** (gaya iOS); geser untuk zoom presisi, panel menutup otomatis setelah 3 detik
 - **Thumbnail hasil terakhir** di kiri bawah (gaya iOS) — ketuk untuk membuka foto di galeri
 - Foto (JPEG, `DCIM/ProCam`) + watermark opsional
 - Video (MP4, `DCIM/ProCam`) + audio
-- Grid 3x3, flash, zoom 1x/2x/5x + pinch, tap-to-focus
+- Grid 3x3, flash, zoom 1x/2x/5x + pinch + slider zoom (tahan tombol), tap-to-focus
 - HUD menampilkan resolusi, FPS target, dan nilai pro aktif
 - Panel atas dan bawah memakai lapisan hitam 30% (bukan blur) agar ringan
 

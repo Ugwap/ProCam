@@ -1,6 +1,7 @@
 package com.ugwap.procam
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -24,6 +25,8 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.Surface
+import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -128,6 +131,8 @@ class MainActivity : AppCompatActivity() {
     private val uiExecutor by lazy { ContextCompat.getMainExecutor(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var recordStartedAt = 0L
+    private var zoomAnimator: ValueAnimator? = null
+    private val sembunyikanZoomRunnable = Runnable { sembunyikanZoomPanel() }
 
     private val tag = "ProCam"
 
@@ -275,6 +280,33 @@ class MainActivity : AppCompatActivity() {
         binding.btnZoom2.setOnClickListener { setZoom(2f) }
         binding.btnZoom5.setOnClickListener { setZoom(5f) }
 
+        val tahanZoom = View.OnLongClickListener {
+            tampilkanZoomPanel()
+            true
+        }
+        binding.zoomRow.setOnLongClickListener(tahanZoom)
+        binding.btnZoomUw.setOnLongClickListener(tahanZoom)
+        binding.btnZoom1.setOnLongClickListener(tahanZoom)
+        binding.btnZoom2.setOnLongClickListener(tahanZoom)
+        binding.btnZoom5.setOnLongClickListener(tahanZoom)
+
+        binding.zoomSlider.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser || isUpdatingUi) return@addOnChangeListener
+            zoomAnimator?.cancel()
+            camera?.cameraControl?.setLinearZoom(value)
+            perbaruiZoomValue(camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f)
+            jadwalkanSembunyikanZoom()
+        }
+        binding.zoomSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {
+                handler.removeCallbacks(sembunyikanZoomRunnable)
+            }
+
+            override fun onStopTrackingTouch(slider: Slider) {
+                jadwalkanSembunyikanZoom()
+            }
+        })
+
         binding.btnStab.setOnClickListener {
             if (!stabSupported) return@setOnClickListener
             stabEnabled = !stabEnabled
@@ -419,6 +451,8 @@ class MainActivity : AppCompatActivity() {
         setModeChipActive(binding.btnVideo, mode == Mode.VIDEO)
         binding.controlsPanel.isVisible = false
         binding.zoomRow.isVisible = true
+        handler.removeCallbacks(sembunyikanZoomRunnable)
+        sembunyikanZoomPanel()
         binding.btnStab.isVisible = mode == Mode.VIDEO && stabSupported
         updateStabChip()
         bindUseCases()
@@ -623,7 +657,17 @@ class MainActivity : AppCompatActivity() {
             updateZoomChips(1f)
 
             bound.cameraInfo.zoomState.observe(this) { state ->
-                if (state != null) updateZoomChips(state.zoomRatio)
+                if (state != null) {
+                    updateZoomChips(state.zoomRatio)
+                    if (binding.zoomPanel.isVisible) {
+                        isUpdatingUi = true
+                        if (kotlin.math.abs(binding.zoomSlider.value - state.linearZoom) > 0.001f) {
+                            binding.zoomSlider.value = state.linearZoom
+                        }
+                        isUpdatingUi = false
+                        perbaruiZoomValue(state.zoomRatio)
+                    }
+                }
             }
 
             updateHud()
@@ -680,16 +724,80 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setZoom(ratio: Float) {
+        zoomAnimator?.cancel()
+        handler.removeCallbacks(sembunyikanZoomRunnable)
+        sembunyikanZoomPanel()
         if (usingUltraWide) {
             usingUltraWide = false
             cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
             if (::cameraProvider.isInitialized) readHardwareInfo()
             bindUseCases()
-            camera?.cameraControl?.setZoomRatio(ratio.coerceIn(1f, maxZoom))
+            handler.postDelayed({ animateZoomToRatio(ratio) }, 250L)
             return
         }
-        val target = ratio.coerceIn(1f, maxZoom)
-        camera?.cameraControl?.setZoomRatio(target)
+        animateZoomToRatio(ratio)
+    }
+
+    private fun ratioToLinear(ratio: Float, min: Float, max: Float): Float {
+        if (max <= min || min <= 0f) return 0f
+        return (ln(ratio / min) / ln(max / min)).coerceIn(0f, 1f)
+    }
+
+    private fun animateZoomToRatio(ratio: Float) {
+        val cam = camera ?: return
+        val state = cam.cameraInfo.zoomState.value ?: return
+        val min = state.minZoomRatio
+        val max = state.maxZoomRatio
+        val target = ratio.coerceIn(min, max)
+        val dari = state.linearZoom
+        val ke = ratioToLinear(target, min, max)
+        if (kotlin.math.abs(ke - dari) < 0.0005f) return
+
+        zoomAnimator?.cancel()
+        zoomAnimator = ValueAnimator.ofFloat(dari, ke).apply {
+            duration = 260L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { cam.cameraControl.setLinearZoom(it.animatedValue as Float) }
+            start()
+        }
+    }
+
+    private fun tampilkanZoomPanel() {
+        val state = camera?.cameraInfo?.zoomState?.value ?: return
+        isUpdatingUi = true
+        binding.zoomSlider.value = state.linearZoom
+        isUpdatingUi = false
+        perbaruiZoomValue(state.zoomRatio)
+        val baru = !binding.zoomPanel.isVisible
+        binding.zoomPanel.animate().cancel()
+        binding.zoomPanel.isVisible = true
+        binding.zoomPanel.alpha = 1f
+        if (baru) {
+            binding.zoomPanel.alpha = 0f
+            binding.zoomPanel.animate().alpha(1f).setDuration(140L).start()
+        }
+        jadwalkanSembunyikanZoom()
+    }
+
+    private fun sembunyikanZoomPanel() {
+        if (!binding.zoomPanel.isVisible) return
+        binding.zoomPanel.animate().cancel()
+        binding.zoomPanel.animate()
+            .alpha(0f)
+            .setDuration(140L)
+            .withEndAction {
+                if (binding.zoomPanel.alpha <= 0.01f) binding.zoomPanel.isVisible = false
+            }
+            .start()
+    }
+
+    private fun perbaruiZoomValue(ratio: Float) {
+        binding.zoomValue.text = String.format(Locale.US, "%.1fx", ratio)
+    }
+
+    private fun jadwalkanSembunyikanZoom() {
+        handler.removeCallbacks(sembunyikanZoomRunnable)
+        handler.postDelayed(sembunyikanZoomRunnable, 3000L)
     }
 
     private fun updateZoomChips(current: Float) {
@@ -1042,9 +1150,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupGestures() {
         val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                zoomAnimator?.cancel()
+                return true
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val current = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
-                setZoom(current * detector.scaleFactor)
+                val cam = camera ?: return true
+                val state = cam.cameraInfo.zoomState.value ?: return true
+                val faktor = detector.scaleFactor
+                if (faktor <= 0f || !faktor.isFinite()) return true
+                val rentang = ln(state.maxZoomRatio / state.minZoomRatio)
+                if (rentang <= 0f) return true
+
+                val delta = ln(faktor) / rentang
+                val baru = (state.linearZoom + delta).coerceIn(0f, 1f)
+                cam.cameraControl.setLinearZoom(baru)
+
+                if (binding.zoomPanel.isVisible) {
+                    isUpdatingUi = true
+                    binding.zoomSlider.value = baru
+                    isUpdatingUi = false
+                    perbaruiZoomValue(state.minZoomRatio * (state.maxZoomRatio / state.minZoomRatio).pow(baru))
+                    jadwalkanSembunyikanZoom()
+                }
                 return true
             }
         })
@@ -1175,6 +1304,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        zoomAnimator?.cancel()
+        zoomAnimator = null
         recording?.stop()
         super.onDestroy()
     }

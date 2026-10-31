@@ -341,6 +341,44 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
+        <!-- Slider zoom (muncul saat tombol zoom ditahan) -->
+        <LinearLayout
+            android:id="@+id/zoomPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="44dp"
+            android:layout_marginEnd="44dp"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_pill_dark"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="18dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="2dp"
+            android:visibility="gone">
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/zoomSlider"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:value="0"
+                app:labelBehavior="gone" />
+
+            <TextView
+                android:id="@+id/zoomValue"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:text="1.0x"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+        </LinearLayout>
+
         <!-- Zoom + stabilisasi -->
         <LinearLayout
             android:id="@+id/zoomRow"
