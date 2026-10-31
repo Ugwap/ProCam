@@ -17,6 +17,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Masker area di luar frame 1:1 -->
+    <View
+        android:id="@+id/ratioMaskTop"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="top"
+        android:background="#88000000"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/ratioMaskBottom"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="bottom"
+        android:background="#88000000"
+        android:visibility="gone" />
+
     <View
         android:id="@+id/focusRing"
         android:layout_width="64dp"
@@ -24,83 +41,161 @@
         android:background="@drawable/bg_focus_ring"
         android:visibility="gone" />
 
-    <!-- Bar atas -->
-    <LinearLayout
-        android:id="@+id/topBar"
+    <!-- Scrim atas -->
+    <FrameLayout
+        android:id="@+id/topWrap"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="@drawable/bg_topbar"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="14dp">
+        android:background="#4D000000">
 
-        <TextView
-            android:id="@+id/hudText"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:id="@+id/topArea"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:fontFamily="monospace"
-            android:text="Menyiapkan kamera…"
-            android:textColor="#DDFFFFFF"
-            android:textSize="10sp" />
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/btnGrid"
-            style="@style/ChipText"
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <TextView
+                android:id="@+id/hudText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.02"
+                android:text="Menyiapkan kamera…"
+                android:textColor="#DDFFFFFF"
+                android:textSize="10sp" />
+
+            <ImageView
+                android:id="@+id/btnControls"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="@drawable/bg_round_button"
+                android:contentDescription="Kontrol kamera"
+                android:padding="9dp"
+                android:src="@drawable/ic_controls" />
+        </LinearLayout>
+
+        <!-- Panel kontrol tambahan (iOS style) -->
+        <LinearLayout
+            android:id="@+id/controlsPanel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="Grid" />
+            android:layout_gravity="end"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="14dp"
+            android:background="@drawable/bg_glass_panel"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
 
-        <TextView
-            android:id="@+id/btnFlash"
-            style="@style/ChipText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="Flash" />
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/btnWatermark"
-            style="@style/ChipText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="WM" />
+                <TextView
+                    android:id="@+id/btnGrid"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Grid" />
 
-        <TextView
-            android:id="@+id/btnFps"
-            style="@style/ChipText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="FPS" />
-    </LinearLayout>
+                <TextView
+                    android:id="@+id/btnFlash"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Flash" />
 
-    <!-- Panel bawah -->
+                <TextView
+                    android:id="@+id/btnWatermark"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="WM" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/btnFps"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="FPS" />
+
+                <TextView
+                    android:id="@+id/btnStab"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="STAB ON"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btnRatio"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="4:3" />
+            </LinearLayout>
+        </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Kontrol bawah -->
+    <FrameLayout
+        android:id="@+id/bottomWrap"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#4D000000">
+
     <LinearLayout
         android:id="@+id/bottomContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="10dp">
 
         <TextView
             android:id="@+id/timerText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="6dp"
-            android:background="@drawable/bg_chip"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_pill_dark"
             android:fontFamily="monospace"
-            android:paddingStart="12dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="4dp"
+            android:paddingStart="14dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="5dp"
             android:text="00:00"
             android:textColor="@color/accent"
             android:textSize="13sp"
@@ -111,12 +206,13 @@
             android:id="@+id/proPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_panel"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_glass_panel"
             android:orientation="vertical"
             android:paddingStart="18dp"
             android:paddingTop="14dp"
             android:paddingEnd="18dp"
-            android:paddingBottom="10dp"
+            android:paddingBottom="12dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -130,9 +226,10 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.08"
                     android:text="PRO MODE — MANUAL"
                     android:textColor="@color/accent"
-                    android:textSize="12sp" />
+                    android:textSize="11sp" />
 
                 <TextView
                     android:id="@+id/btnResetPro"
@@ -145,16 +242,17 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:orientation="horizontal">
 
                 <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:letterSpacing="0.1"
                     android:text="ISO"
                     android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/isoValue"
@@ -175,16 +273,17 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:orientation="horizontal">
 
                 <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:letterSpacing="0.1"
                     android:text="SHUTTER"
                     android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/shutterValue"
@@ -205,16 +304,17 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:orientation="horizontal">
 
                 <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:letterSpacing="0.1"
                     android:text="FOKUS"
                     android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/focusValue"
@@ -241,125 +341,135 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
-        <!-- Kontrol utama -->
+        <!-- Zoom + stabilisasi -->
         <LinearLayout
-            android:id="@+id/controlBar"
+            android:id="@+id/zoomRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="14dp"
+            android:background="@drawable/bg_pill_dark"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <TextView
+                android:id="@+id/btnZoomUw"
+                style="@style/ZoomText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0.6x"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnZoom1"
+                style="@style/ZoomText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1x" />
+
+            <TextView
+                android:id="@+id/btnZoom2"
+                style="@style/ZoomText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2x" />
+
+            <TextView
+                android:id="@+id/btnZoom5"
+                style="@style/ZoomText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="5x" />
+        </LinearLayout>
+
+        <!-- Tombol rana + thumbnail hasil terakhir -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_bottombar"
-            android:orientation="vertical"
-            android:paddingStart="12dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="18dp">
+            android:layout_marginBottom="14dp">
+
+            <FrameLayout
+                android:layout_width="92dp"
+                android:layout_height="92dp"
+                android:layout_gravity="center">
+
+                <View
+                    android:id="@+id/shutterRing"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_shutter_ring" />
+
+                <View
+                    android:id="@+id/shutterInner"
+                    android:layout_width="78dp"
+                    android:layout_height="78dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_shutter_inner" />
+            </FrameLayout>
+
+            <ImageView
+                android:id="@+id/thumbButton"
+                android:layout_width="54dp"
+                android:layout_height="54dp"
+                android:layout_gravity="start|center_vertical"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_thumb"
+                android:clipToOutline="true"
+                android:contentDescription="Foto terakhir"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <!-- PRO / mode / balik kamera -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/btnPro"
+                style="@style/ChipText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start|center_vertical"
+                android:minWidth="72dp"
+                android:text="PRO" />
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/btnFoto"
-                    style="@style/ChipText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="FOTO" />
+                android:layout_gravity="center"
+                android:background="@drawable/bg_pill_dark"
+                android:orientation="horizontal"
+                android:padding="4dp">
 
                 <TextView
                     android:id="@+id/btnVideo"
-                    style="@style/ChipText"
+                    style="@style/ModeTab"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
                     android:text="VIDEO" />
+
+                <TextView
+                    android:id="@+id/btnFoto"
+                    style="@style/ModeTab"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="FOTO" />
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/zoomRow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/btnZoom1"
-                    style="@style/ChipText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="1x" />
-
-                <TextView
-                    android:id="@+id/btnZoom2"
-                    style="@style/ChipText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="2x" />
-
-                <TextView
-                    android:id="@+id/btnZoom5"
-                    style="@style/ChipText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="5x" />
-
-                <TextView
-                    android:id="@+id/btnStab"
-                    style="@style/ChipText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="STAB ON"
-                    android:visibility="gone" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/btnPro"
-                    style="@style/ChipText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="PRO" />
-
-                <FrameLayout
-                    android:layout_width="82dp"
-                    android:layout_height="82dp"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginEnd="12dp">
-
-                    <View
-                        android:id="@+id/shutterRing"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@drawable/bg_shutter_ring" />
-
-                    <View
-                        android:id="@+id/shutterInner"
-                        android:layout_width="62dp"
-                        android:layout_height="62dp"
-                        android:layout_gravity="center"
-                        android:background="@drawable/bg_shutter_inner" />
-                </FrameLayout>
-
-                <TextView
-                    android:id="@+id/btnFlip"
-                    style="@style/ChipText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="BALIK" />
-            </LinearLayout>
-        </LinearLayout>
+            <ImageView
+                android:id="@+id/btnFlip"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="end|center_vertical"
+                android:background="@drawable/bg_round_button"
+                android:contentDescription="Balik kamera"
+                android:padding="10dp"
+                android:src="@drawable/ic_flip" />
+        </FrameLayout>
     </LinearLayout>
+    </FrameLayout>
 
 </FrameLayout>

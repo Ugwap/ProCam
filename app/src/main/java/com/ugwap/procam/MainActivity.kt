@@ -2,6 +2,7 @@ package com.ugwap.procam
 
 import android.Manifest
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -34,6 +35,7 @@ import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -66,11 +68,15 @@ import kotlin.math.roundToInt
 class MainActivity : AppCompatActivity() {
 
     private enum class Mode { PHOTO, VIDEO }
+    private enum class FrameRatio { SQ, R43, R169 }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraProvider: ProcessCameraProvider
 
     private var cameraSelector: CameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    private var ultraWideSelector: CameraSelector? = null
+    private var ultraWideRatio = 0.6f
+    private var usingUltraWide = false
     private var camera: Camera? = null
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
@@ -79,7 +85,7 @@ class MainActivity : AppCompatActivity() {
 
     private var mode = Mode.PHOTO
     private var proEnabled = false
-    private var stabEnabled = true
+    private var stabEnabled = false
     private var flashOn = false
     private var gridOn = true
     private var watermarkOn = false
@@ -95,15 +101,21 @@ class MainActivity : AppCompatActivity() {
     private var minFocusDistance = 0f
     private var maxZoom = 1f
     private var stabSupported = false
+    private var stabMode = CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
 
     // FPS: null = biarkan kamera memilih (auto)
     private var fpsRange: android.util.Range<Int>? = null
     private val fpsOptions = mutableListOf<android.util.Range<Int>>()
     private var fpsInitialized = false
+    private var forcedFps = false
+    private var frameRatio = FrameRatio.R43
+    private val cameraAspectRatio: Int
+        get() = if (frameRatio == FrameRatio.R169) AspectRatio.RATIO_16_9 else AspectRatio.RATIO_4_3
 
     private var isUpdatingUi = false
 
     private var isBusy = false
+    private var lastPhotoUri: Uri? = null
 
     // Kontrol manual live (tanpa rebind) untuk slider PRO
     private var camera2Control: Camera2CameraControl? = null
@@ -165,6 +177,8 @@ class MainActivity : AppCompatActivity() {
         val padTop = (10 * density).toInt()
         val padEnd = (12 * density).toInt()
         val padBottom = (14 * density).toInt()
+        val padBottomBar = (10 * density).toInt()
+        val padSideBar = (14 * density).toInt()
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.topBar) { view, insets ->
             val bars = insets.getInsets(
@@ -175,7 +189,7 @@ class MainActivity : AppCompatActivity() {
         }
         ViewCompat.setOnApplyWindowInsetsListener(binding.bottomContainer) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(0, 0, 0, bars.bottom)
+            view.setPadding(padSideBar, 0, padSideBar, bars.bottom + padBottomBar)
             insets
         }
     }
@@ -183,14 +197,19 @@ class MainActivity : AppCompatActivity() {
     private fun setupUi() {
         binding.gridOverlay.gridEnabled = gridOn
         setChipActive(binding.btnGrid, gridOn)
-        setChipActive(binding.btnFoto, true)
-        setChipActive(binding.btnVideo, false)
+        setModeChipActive(binding.btnFoto, true)
+        setModeChipActive(binding.btnVideo, false)
         setChipActive(binding.btnPro, false)
         updateFlashChip()
         updateWatermarkChip()
         updateFpsChip()
+        updateRatioChip()
         binding.btnStab.isVisible = false
         updateStabChip()
+
+        binding.previewView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateRatioMask()
+        }
 
         binding.btnGrid.setOnClickListener {
             gridOn = !gridOn
@@ -210,13 +229,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnFps.setOnClickListener { showFpsDialog() }
+        binding.btnRatio.setOnClickListener { showRatioDialog() }
 
         binding.btnFoto.setOnClickListener { switchMode(Mode.PHOTO) }
         binding.btnVideo.setOnClickListener { switchMode(Mode.VIDEO) }
 
+        binding.btnControls.setOnClickListener {
+            binding.controlsPanel.isVisible = !binding.controlsPanel.isVisible
+        }
+
         binding.btnPro.setOnClickListener {
             proEnabled = !proEnabled
             binding.proPanel.isVisible = proEnabled
+            binding.controlsPanel.isVisible = false
             setChipActive(binding.btnPro, proEnabled)
             bindUseCases()
         }
@@ -231,16 +256,21 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnFlip.setOnClickListener {
             if (recording != null) return@setOnClickListener
-            cameraSelector = if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
-                CameraSelector.DEFAULT_FRONT_CAMERA
-            } else {
+            usingUltraWide = false
+            cameraSelector = if (cameraSelector == CameraSelector.DEFAULT_FRONT_CAMERA) {
                 CameraSelector.DEFAULT_BACK_CAMERA
+            } else {
+                CameraSelector.DEFAULT_FRONT_CAMERA
             }
             fpsInitialized = false
-            if (::cameraProvider.isInitialized) readHardwareInfo()
+            if (::cameraProvider.isInitialized) {
+                detectUltraWide()
+                readHardwareInfo()
+            }
             bindUseCases()
         }
 
+        binding.btnZoomUw.setOnClickListener { pilihUltraWide() }
         binding.btnZoom1.setOnClickListener { setZoom(1f) }
         binding.btnZoom2.setOnClickListener { setZoom(2f) }
         binding.btnZoom5.setOnClickListener { setZoom(5f) }
@@ -249,11 +279,12 @@ class MainActivity : AppCompatActivity() {
             if (!stabSupported) return@setOnClickListener
             stabEnabled = !stabEnabled
             updateStabChip()
-            if (mode == Mode.VIDEO) bindUseCases()
+            pushLiveProOptions()
         }
 
         binding.shutterRing.setOnClickListener { onShutter() }
         binding.shutterInner.setOnClickListener { onShutter() }
+        binding.thumbButton.setOnClickListener { bukaFotoTerakhir() }
 
         setupProSliders()
     }
@@ -310,18 +341,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pushLiveProOptions() {
-        if (!proEnabled) return
         val control = camera2Control ?: return
         try {
-            val options = CaptureRequestOptions.Builder()
-                .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
-                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, shutterNs)
-                .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDiopter)
-                .build()
-            control.setCaptureRequestOptions(options)
+            val builder = CaptureRequestOptions.Builder()
+            var adaOpsi = false
+            if (proEnabled) {
+                builder.setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+                    .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, shutterNs)
+                    .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDiopter)
+                adaOpsi = true
+            }
+            if (mode == Mode.VIDEO && stabSupported) {
+                builder.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                    if (stabEnabled) stabMode
+                    else CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+                )
+                adaOpsi = true
+            }
+            if (!adaOpsi) return
+            control.setCaptureRequestOptions(builder.build())
         } catch (e: Exception) {
             Log.w(tag, "Gagal menerapkan opsi manual live", e)
         }
@@ -330,6 +372,23 @@ class MainActivity : AppCompatActivity() {
     private fun setChipActive(view: TextView, active: Boolean) {
         view.setBackgroundResource(if (active) R.drawable.bg_chip_on else R.drawable.bg_chip)
         view.setTextColor(if (active) 0xFF111111.toInt() else Color.WHITE)
+    }
+
+    /** Tab mode (VIDEO/FOTO): teks amber saat aktif, tanpa background. */
+    private fun setModeChipActive(view: TextView, active: Boolean) {
+        view.setTextColor(if (active) 0xFFFFC107.toInt() else 0xFFFFFFFF.toInt())
+        view.alpha = if (active) 1f else 0.85f
+    }
+
+    /** Chip zoom: pil amber penuh saat aktif, teks amber saat tidak aktif. */
+    private fun setZoomChipActive(view: TextView, active: Boolean) {
+        if (active) {
+            view.setBackgroundResource(R.drawable.bg_pill_amber)
+            view.setTextColor(0xFF111111.toInt())
+        } else {
+            view.setBackgroundResource(android.R.color.transparent)
+            view.setTextColor(0xFFFFC107.toInt())
+        }
     }
 
     private fun updateFlashChip() {
@@ -356,8 +415,9 @@ class MainActivity : AppCompatActivity() {
         if (mode == newMode) return
         if (recording != null) stopRecording()
         mode = newMode
-        setChipActive(binding.btnFoto, mode == Mode.PHOTO)
-        setChipActive(binding.btnVideo, mode == Mode.VIDEO)
+        setModeChipActive(binding.btnFoto, mode == Mode.PHOTO)
+        setModeChipActive(binding.btnVideo, mode == Mode.VIDEO)
+        binding.controlsPanel.isVisible = false
         binding.zoomRow.isVisible = true
         binding.btnStab.isVisible = mode == Mode.VIDEO && stabSupported
         updateStabChip()
@@ -379,6 +439,7 @@ class MainActivity : AppCompatActivity() {
         future.addListener({
             try {
                 cameraProvider = future.get()
+                detectUltraWide()
                 readHardwareInfo()
                 bindUseCases()
             } catch (e: Exception) {
@@ -386,6 +447,49 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Kamera tidak dapat dibuka: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }, uiExecutor)
+    }
+
+    private fun detectUltraWide() {
+        ultraWideSelector = null
+        try {
+            val backs = cameraProvider.availableCameraInfos.filter {
+                it.lensFacing == CameraSelector.LENS_FACING_BACK
+            }
+            val main = CameraSelector.DEFAULT_BACK_CAMERA.filter(backs).firstOrNull() ?: return
+
+            fun focal35(info: androidx.camera.core.CameraInfo): Float {
+                val c2 = Camera2CameraInfo.from(info)
+                val f = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                    ?.minOrNull() ?: return 0f
+                val s = c2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+                    ?: return 0f
+                if (s.width <= 0f || s.height <= 0f) return 0f
+                return f * 43.266f / kotlin.math.hypot(s.width, s.height)
+            }
+
+            val mainF = focal35(main)
+            if (mainF <= 0f) return
+            val uw = backs.filter { it != main }
+                .map { it to focal35(it) }
+                .filter { it.second > 0f }
+                .minByOrNull { it.second } ?: return
+            if (uw.second >= mainF * 0.92f) return
+
+            ultraWideRatio = uw.second / mainF
+            val id = Camera2CameraInfo.from(uw.first).cameraId
+            ultraWideSelector = CameraSelector.Builder()
+                .addCameraFilter { infos ->
+                    infos.filter { Camera2CameraInfo.from(it).cameraId == id }
+                }
+                .build()
+        } catch (e: Exception) {
+            Log.w(tag, "Deteksi ultrawide gagal", e)
+            ultraWideSelector = null
+        } finally {
+            binding.btnZoomUw.text = String.format(Locale.US, "%.1fx", ultraWideRatio)
+            binding.btnZoomUw.isVisible = ultraWideSelector != null &&
+                cameraSelector != CameraSelector.DEFAULT_FRONT_CAMERA
+        }
     }
 
     private fun readHardwareInfo() {
@@ -401,7 +505,13 @@ class MainActivity : AppCompatActivity() {
         val stabModes = c2.getCameraCharacteristic(
             CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES
         )
-        stabSupported = stabModes?.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true
+        val modePreview = if (Build.VERSION.SDK_INT >= 33) {
+            CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
+        } else -1
+        stabSupported = stabModes?.contains(modePreview) == true ||
+            stabModes?.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true
+        stabMode = if (stabModes?.contains(modePreview) == true) modePreview
+        else CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON
         binding.btnStab.isVisible = mode == Mode.VIDEO && stabSupported
 
         val ranges = c2.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
@@ -434,9 +544,15 @@ class MainActivity : AppCompatActivity() {
 
         val rotation = binding.previewView.display?.rotation ?: Surface.ROTATION_0
 
-        val previewBuilder = Preview.Builder().setTargetRotation(rotation)
+        val previewBuilder = Preview.Builder()
+            .setTargetRotation(rotation)
+            .setTargetAspectRatio(cameraAspectRatio)
         fpsRange?.let { previewBuilder.setTargetFrameRate(it) }
+        if (fpsRange != null) applyFpsOption(Camera2Interop.Extender(previewBuilder))
         if (proEnabled) applyManualOptions(Camera2Interop.Extender(previewBuilder))
+        if (mode == Mode.VIDEO && stabSupported && stabEnabled) {
+            applyStabOption(Camera2Interop.Extender(previewBuilder))
+        }
 
         val useCases = mutableListOf<UseCase>()
         val newPreview = previewBuilder.build()
@@ -449,7 +565,9 @@ class MainActivity : AppCompatActivity() {
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setFlashMode(if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF)
                 .setTargetRotation(rotation)
+                .setTargetAspectRatio(cameraAspectRatio)
 
+            if (fpsRange != null) applyFpsOption(Camera2Interop.Extender(builder))
             if (proEnabled) applyManualOptions(Camera2Interop.Extender(builder))
 
             val newCapture = builder.build()
@@ -472,7 +590,10 @@ class MainActivity : AppCompatActivity() {
 
             val builder = VideoCapture.Builder(recorder).setTargetRotation(rotation)
             fpsRange?.let { builder.setTargetFrameRate(it) }
-            if (stabSupported && stabEnabled) builder.setVideoStabilizationEnabled(true)
+            if (fpsRange != null) applyFpsOption(Camera2Interop.Extender(builder))
+            if (stabSupported && stabEnabled) {
+                applyStabOption(Camera2Interop.Extender(builder))
+            }
 
             val newVideo = builder.build()
             videoCapture = newVideo
@@ -494,7 +615,7 @@ class MainActivity : AppCompatActivity() {
                 Log.w(tag, "Camera2CameraControl tidak tersedia", e)
                 null
             }
-            if (proEnabled) pushLiveProOptions()
+            if (proEnabled || (mode == Mode.VIDEO && stabSupported)) pushLiveProOptions()
 
             maxZoom = bound.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
             binding.btnZoom5.isVisible = maxZoom >= 5f
@@ -506,9 +627,22 @@ class MainActivity : AppCompatActivity() {
             }
 
             updateHud()
+            updateRatioMask()
         } catch (e: Exception) {
             Log.e(tag, "Gagal bind use case", e)
-            Toast.makeText(this, "Konfigurasi kamera gagal: ${e.message}", Toast.LENGTH_LONG).show()
+            if (forcedFps) {
+                forcedFps = false
+                fpsRange = fpsOptions.firstOrNull()
+                updateFpsChip()
+                Toast.makeText(
+                    this,
+                    "FPS yang dipaksa tidak didukung kamera; kembali ke ${fpsRange?.upper ?: "auto"} fps.",
+                    Toast.LENGTH_LONG
+                ).show()
+                bindUseCases()
+            } else {
+                Toast.makeText(this, "Konfigurasi kamera gagal: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -522,40 +656,149 @@ class MainActivity : AppCompatActivity() {
             .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDiopter)
     }
 
+    private fun applyStabOption(extender: Camera2Interop.Extender<*>) {
+        extender.setCaptureRequestOption(
+            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+            stabMode
+        )
+    }
+
+    private fun applyFpsOption(extender: Camera2Interop.Extender<*>) {
+        fpsRange?.let {
+            extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+        }
+    }
+
+    private fun pilihUltraWide() {
+        if (recording != null) return
+        val uw = ultraWideSelector ?: return
+        if (usingUltraWide) return
+        usingUltraWide = true
+        cameraSelector = uw
+        if (::cameraProvider.isInitialized) readHardwareInfo()
+        bindUseCases()
+    }
+
     private fun setZoom(ratio: Float) {
+        if (usingUltraWide) {
+            usingUltraWide = false
+            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            if (::cameraProvider.isInitialized) readHardwareInfo()
+            bindUseCases()
+            camera?.cameraControl?.setZoomRatio(ratio.coerceIn(1f, maxZoom))
+            return
+        }
         val target = ratio.coerceIn(1f, maxZoom)
         camera?.cameraControl?.setZoomRatio(target)
     }
 
     private fun updateZoomChips(current: Float) {
-        setChipActive(binding.btnZoom1, current < 1.8f)
-        setChipActive(binding.btnZoom2, current >= 1.8f && current < 3.5f)
-        setChipActive(binding.btnZoom5, current >= 3.5f)
+        if (usingUltraWide) {
+            setZoomChipActive(binding.btnZoomUw, true)
+            setZoomChipActive(binding.btnZoom1, false)
+            setZoomChipActive(binding.btnZoom2, false)
+            setZoomChipActive(binding.btnZoom5, false)
+            return
+        }
+        setZoomChipActive(binding.btnZoomUw, false)
+        setZoomChipActive(binding.btnZoom1, current < 1.8f)
+        setZoomChipActive(binding.btnZoom2, current >= 1.8f && current < 3.5f)
+        setZoomChipActive(binding.btnZoom5, current >= 3.5f)
     }
 
     private fun updateHud() {
         val resolusi = imageCapture?.resolutionInfo?.resolution?.let { "${it.width}x${it.height}" }
-        val fpsText = fpsRange?.let { "~${it.upper}fps" } ?: "auto"
+        val fpsText = fpsRange?.let {
+            if (forcedFps) "~${it.upper}fps (paksa)" else "~${it.upper}fps"
+        } ?: "auto"
         val proText = if (proEnabled) "ISO $iso · ${formatShutter(shutterNs)}" else "AUTO"
         binding.hudText.text = listOfNotNull(resolusi, fpsText, proText).joinToString(" · ")
     }
 
     private fun showFpsDialog() {
-        if (fpsOptions.isEmpty()) {
-            Toast.makeText(this, "Daftar FPS belum tersedia.", Toast.LENGTH_SHORT).show()
-            return
+        val pilihan = mutableListOf<android.util.Range<Int>?>(null)
+        val label = mutableListOf("Auto (bawaan kamera)")
+        fpsOptions.forEach { r ->
+            pilihan.add(r)
+            label.add("${r.lower}–${r.upper} fps")
+        }
+        listOf(60, 120).forEach { target ->
+            if (fpsOptions.none { it.upper >= target }) {
+                pilihan.add(android.util.Range(target, target))
+                label.add("$target fps (paksa)")
+            }
         }
 
-        val label = mutableListOf("Auto (bawaan kamera)")
-        fpsOptions.forEach { r -> label.add("${r.lower}–${r.upper} fps") }
-
-        val checked = if (fpsRange == null) 0 else fpsOptions.indexOf(fpsRange) + 1
+        val checked = pilihan.indexOf(fpsRange).coerceAtLeast(0)
 
         AlertDialog.Builder(this)
             .setTitle("Target FPS")
             .setSingleChoiceItems(label.toTypedArray(), checked) { dialog, which ->
-                fpsRange = if (which == 0) null else fpsOptions[which - 1]
+                val baru = pilihan[which]
+                forcedFps = baru != null && fpsOptions.none { it == baru }
+                fpsRange = baru
                 updateFpsChip()
+                bindUseCases()
+                if (forcedFps) {
+                    Toast.makeText(
+                        this,
+                        "Mencoba ${baru?.upper} fps. Jika hardware menolak, aplikasi kembali ke FPS yang didukung.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun updateRatioChip() {
+        binding.btnRatio.text = when (frameRatio) {
+            FrameRatio.SQ -> "1:1"
+            FrameRatio.R169 -> "16:9"
+            else -> "4:3"
+        }
+        setChipActive(binding.btnRatio, frameRatio != FrameRatio.R43)
+        updateRatioMask()
+    }
+
+    private fun updateRatioMask() {
+        val square = frameRatio == FrameRatio.SQ
+        binding.ratioMaskTop.isVisible = square
+        binding.ratioMaskBottom.isVisible = square
+        if (!square) return
+
+        val h = binding.previewView.height
+        if (h <= 0) return
+
+        val res = imageCapture?.resolutionInfo?.resolution
+        val frac = if (res != null && res.width > 0) {
+            res.height.toFloat() / res.width
+        } else {
+            0.75f
+        }
+        val band = (h * frac).toInt().coerceIn(0, h)
+        val strip = (h - band) / 2
+
+        listOf(binding.ratioMaskTop, binding.ratioMaskBottom).forEach { v ->
+            val lp = v.layoutParams as android.widget.FrameLayout.LayoutParams
+            if (lp.height != strip) {
+                lp.height = strip
+                v.layoutParams = lp
+            }
+        }
+    }
+
+    private fun showRatioDialog() {
+        val label = arrayOf("1:1", "4:3", "16:9")
+        val nilai = arrayOf(FrameRatio.SQ, FrameRatio.R43, FrameRatio.R169)
+        val checked = nilai.indexOf(frameRatio).coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle("Rasio foto")
+            .setSingleChoiceItems(label, checked) { dialog, which ->
+                frameRatio = nilai[which]
+                updateRatioChip()
                 bindUseCases()
                 dialog.dismiss()
             }
@@ -589,8 +832,14 @@ class MainActivity : AppCompatActivity() {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 isBusy = false
                 val uri = output.savedUri
-                if (watermarkOn && uri != null) {
-                    Thread { terapkanWatermark(uri) }.start()
+                val cropSquare = frameRatio == FrameRatio.SQ
+                val pakaiWatermark = watermarkOn
+                if (uri != null) {
+                    lastPhotoUri = uri
+                    if (!pakaiWatermark && !cropSquare) perbaruiThumbnail(uri)
+                }
+                if (uri != null && (pakaiWatermark || cropSquare)) {
+                    Thread { prosesFoto(uri, cropSquare, pakaiWatermark) }.start()
                 } else {
                     Toast.makeText(this@MainActivity, "Foto tersimpan di DCIM/ProCam", Toast.LENGTH_SHORT).show()
                 }
@@ -604,7 +853,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun terapkanWatermark(uri: Uri) {
+    private fun prosesFoto(uri: Uri, cropSquare: Boolean, watermark: Boolean) {
         try {
             val ukuran = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, ukuran) }
@@ -629,24 +878,44 @@ class MainActivity : AppCompatActivity() {
                 else -> 0f
             }
 
-            val bmp = if (rotasi != 0f) {
+            var bmp = if (rotasi != 0f) {
                 val m = Matrix().apply { postRotate(rotasi) }
                 Bitmap.createBitmap(asli, 0, 0, asli.width, asli.height, m, true)
             } else {
                 asli
             }
 
-            val kanvas = Canvas(bmp)
-            val ukuranTeks = bmp.width / 32f
-            val cat = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                textSize = ukuranTeks
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                setShadowLayer(ukuranTeks / 5f, 0f, 0f, 0xCC000000.toInt())
+            if (cropSquare) {
+                val sisi = minOf(bmp.width, bmp.height)
+                val x = (bmp.width - sisi) / 2
+                val y = (bmp.height - sisi) / 2
+                val persegi = Bitmap.createBitmap(bmp, x, y, sisi, sisi)
+                if (persegi !== bmp) {
+                    if (bmp !== asli) bmp.recycle()
+                    bmp = persegi
+                }
             }
 
-            val waktu = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date())
-            kanvas.drawText("ProCam · $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
+            if (watermark) {
+                if (!bmp.isMutable) {
+                    val mutabel = bmp.copy(Bitmap.Config.ARGB_8888, true)
+                    if (mutabel != null) {
+                        if (bmp !== asli) bmp.recycle()
+                        bmp = mutabel
+                    }
+                }
+                val kanvas = Canvas(bmp)
+                val ukuranTeks = bmp.width / 32f
+                val cat = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = ukuranTeks
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setShadowLayer(ukuranTeks / 5f, 0f, 0f, 0xCC000000.toInt())
+                }
+
+                val waktu = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date())
+                kanvas.drawText("ProCam · $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
+            }
 
             contentResolver.openOutputStream(uri, "w")?.use {
                 bmp.compress(Bitmap.CompressFormat.JPEG, 95, it)
@@ -655,14 +924,61 @@ class MainActivity : AppCompatActivity() {
             if (bmp !== asli) bmp.recycle()
             asli.recycle()
 
+            val pesan = buildString {
+                append("Foto")
+                if (cropSquare) append(" 1:1")
+                if (watermark) append(" + watermark")
+                append(" tersimpan di DCIM/ProCam")
+            }
             runOnUiThread {
-                Toast.makeText(this, "Foto + watermark tersimpan di DCIM/ProCam", Toast.LENGTH_SHORT).show()
+                perbaruiThumbnail(uri)
+                Toast.makeText(this, pesan, Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
-            Log.e(tag, "Watermark gagal", e)
+            Log.e(tag, "Pemrosesan foto gagal", e)
             runOnUiThread {
-                Toast.makeText(this, "Foto tersimpan, namun watermark gagal.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Foto tersimpan, namun pemrosesan gagal.", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun perbaruiThumbnail(uri: Uri) {
+        Thread {
+            val bmp = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentResolver.loadThumbnail(uri, android.util.Size(240, 240), null)
+                } else {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                    var sample = 1
+                    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 480) sample *= 2
+                    val opt = BitmapFactory.Options().apply { inSampleSize = sample }
+                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opt) }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Thumbnail gagal dimuat", e)
+                null
+            } ?: return@Thread
+
+            runOnUiThread {
+                binding.thumbButton.setImageBitmap(bmp)
+                binding.thumbButton.isVisible = true
+            }
+        }.start()
+    }
+
+    private fun bukaFotoTerakhir() {
+        val uri = lastPhotoUri ?: return
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "image/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(tag, "Tidak dapat membuka foto", e)
+            Toast.makeText(this, "Tidak ada aplikasi galeri untuk membuka foto.", Toast.LENGTH_SHORT).show()
         }
     }
 
