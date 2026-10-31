@@ -236,7 +236,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="Geser lalu lepas untuk menerapkan ke preview."
+                android:text="Geser untuk mengubah fokus/eksposur secara langsung."
                 android:textColor="#99FFFFFF"
                 android:textSize="10sp" />
         </LinearLayout>
@@ -305,6 +305,15 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:text="5x" />
+
+                <TextView
+                    android:id="@+id/btnStab"
+                    style="@style/ChipText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="STAB ON"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <LinearLayout

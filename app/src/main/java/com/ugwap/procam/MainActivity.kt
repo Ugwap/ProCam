@@ -28,8 +28,10 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
@@ -47,6 +49,8 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.exifinterface.media.ExifInterface
 import com.google.android.material.slider.Slider
@@ -75,6 +79,7 @@ class MainActivity : AppCompatActivity() {
 
     private var mode = Mode.PHOTO
     private var proEnabled = false
+    private var stabEnabled = true
     private var flashOn = false
     private var gridOn = true
     private var watermarkOn = false
@@ -89,6 +94,7 @@ class MainActivity : AppCompatActivity() {
     private var shutterRange = android.util.Range(1_000L, 500_000_000L)
     private var minFocusDistance = 0f
     private var maxZoom = 1f
+    private var stabSupported = false
 
     // FPS: null = biarkan kamera memilih (auto)
     private var fpsRange: android.util.Range<Int>? = null
@@ -96,7 +102,16 @@ class MainActivity : AppCompatActivity() {
     private var fpsInitialized = false
 
     private var isUpdatingUi = false
+
     private var isBusy = false
+
+    // Kontrol manual live (tanpa rebind) untuk slider PRO
+    private var camera2Control: Camera2CameraControl? = null
+    private var liveProPending = false
+    private val liveProRunnable = Runnable {
+        liveProPending = false
+        pushLiveProOptions()
+    }
 
     private val uiExecutor by lazy { ContextCompat.getMainExecutor(this) }
     private val handler = Handler(Looper.getMainLooper())
@@ -129,6 +144,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        applyWindowInsets()
         setupUi()
         setupGestures()
 
@@ -143,6 +159,27 @@ class MainActivity : AppCompatActivity() {
 
     // ================= UI =================
 
+    private fun applyWindowInsets() {
+        val density = resources.displayMetrics.density
+        val padStart = (12 * density).toInt()
+        val padTop = (10 * density).toInt()
+        val padEnd = (12 * density).toInt()
+        val padBottom = (14 * density).toInt()
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.topBar) { view, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(padStart + bars.left, padTop + bars.top, padEnd + bars.right, padBottom)
+            insets
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(binding.bottomContainer) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, 0, 0, bars.bottom)
+            insets
+        }
+    }
+
     private fun setupUi() {
         binding.gridOverlay.gridEnabled = gridOn
         setChipActive(binding.btnGrid, gridOn)
@@ -152,6 +189,8 @@ class MainActivity : AppCompatActivity() {
         updateFlashChip()
         updateWatermarkChip()
         updateFpsChip()
+        binding.btnStab.isVisible = false
+        updateStabChip()
 
         binding.btnGrid.setOnClickListener {
             gridOn = !gridOn
@@ -198,12 +237,20 @@ class MainActivity : AppCompatActivity() {
                 CameraSelector.DEFAULT_BACK_CAMERA
             }
             fpsInitialized = false
+            if (::cameraProvider.isInitialized) readHardwareInfo()
             bindUseCases()
         }
 
         binding.btnZoom1.setOnClickListener { setZoom(1f) }
         binding.btnZoom2.setOnClickListener { setZoom(2f) }
         binding.btnZoom5.setOnClickListener { setZoom(5f) }
+
+        binding.btnStab.setOnClickListener {
+            if (!stabSupported) return@setOnClickListener
+            stabEnabled = !stabEnabled
+            updateStabChip()
+            if (mode == Mode.VIDEO) bindUseCases()
+        }
 
         binding.shutterRing.setOnClickListener { onShutter() }
         binding.shutterInner.setOnClickListener { onShutter() }
@@ -217,12 +264,11 @@ class MainActivity : AppCompatActivity() {
             iso = sliderToIso(value)
             binding.isoValue.text = "ISO $iso"
             updateHud()
+            scheduleLiveProOptions()
         }
         binding.isoSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
             override fun onStartTrackingTouch(slider: Slider) = Unit
-            override fun onStopTrackingTouch(slider: Slider) {
-                if (proEnabled) bindUseCases()
-            }
+            override fun onStopTrackingTouch(slider: Slider) = applyLiveProNow()
         })
 
         binding.shutterSlider.addOnChangeListener { _, value, _ ->
@@ -230,12 +276,11 @@ class MainActivity : AppCompatActivity() {
             shutterNs = sliderToShutter(value)
             binding.shutterValue.text = formatShutter(shutterNs)
             updateHud()
+            scheduleLiveProOptions()
         }
         binding.shutterSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
             override fun onStartTrackingTouch(slider: Slider) = Unit
-            override fun onStopTrackingTouch(slider: Slider) {
-                if (proEnabled) bindUseCases()
-            }
+            override fun onStopTrackingTouch(slider: Slider) = applyLiveProNow()
         })
 
         binding.focusSlider.addOnChangeListener { _, value, _ ->
@@ -243,13 +288,43 @@ class MainActivity : AppCompatActivity() {
             focusDiopter = value
             binding.focusValue.text = formatFocus(focusDiopter)
             updateHud()
+            scheduleLiveProOptions()
         }
         binding.focusSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
             override fun onStartTrackingTouch(slider: Slider) = Unit
-            override fun onStopTrackingTouch(slider: Slider) {
-                if (proEnabled) bindUseCases()
-            }
+            override fun onStopTrackingTouch(slider: Slider) = applyLiveProNow()
         })
+    }
+
+    /** Terapkan nilai manual langsung ke sesi kamera tanpa rebind (fokus/ISO/shutter live). */
+    private fun scheduleLiveProOptions() {
+        if (liveProPending) return
+        liveProPending = true
+        handler.postDelayed(liveProRunnable, 40L)
+    }
+
+    private fun applyLiveProNow() {
+        handler.removeCallbacks(liveProRunnable)
+        liveProPending = false
+        pushLiveProOptions()
+    }
+
+    private fun pushLiveProOptions() {
+        if (!proEnabled) return
+        val control = camera2Control ?: return
+        try {
+            val options = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, shutterNs)
+                .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDiopter)
+                .build()
+            control.setCaptureRequestOptions(options)
+        } catch (e: Exception) {
+            Log.w(tag, "Gagal menerapkan opsi manual live", e)
+        }
     }
 
     private fun setChipActive(view: TextView, active: Boolean) {
@@ -267,6 +342,11 @@ class MainActivity : AppCompatActivity() {
         setChipActive(binding.btnWatermark, watermarkOn)
     }
 
+    private fun updateStabChip() {
+        binding.btnStab.text = if (stabEnabled) "STAB ON" else "STAB OFF"
+        setChipActive(binding.btnStab, stabEnabled)
+    }
+
     private fun updateFpsChip() {
         binding.btnFps.text = fpsRange?.let { "FPS ${it.upper}" } ?: "FPS auto"
         setChipActive(binding.btnFps, fpsRange != null)
@@ -278,7 +358,9 @@ class MainActivity : AppCompatActivity() {
         mode = newMode
         setChipActive(binding.btnFoto, mode == Mode.PHOTO)
         setChipActive(binding.btnVideo, mode == Mode.VIDEO)
-        binding.zoomRow.isVisible = mode == Mode.PHOTO
+        binding.zoomRow.isVisible = true
+        binding.btnStab.isVisible = mode == Mode.VIDEO && stabSupported
+        updateStabChip()
         bindUseCases()
     }
 
@@ -316,6 +398,12 @@ class MainActivity : AppCompatActivity() {
             ?: android.util.Range(1_000L, 500_000_000L)
         minFocusDistance = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
 
+        val stabModes = c2.getCameraCharacteristic(
+            CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES
+        )
+        stabSupported = stabModes?.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true
+        binding.btnStab.isVisible = mode == Mode.VIDEO && stabSupported
+
         val ranges = c2.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?: emptyArray()
         fpsOptions.clear()
@@ -352,6 +440,7 @@ class MainActivity : AppCompatActivity() {
 
         val useCases = mutableListOf<UseCase>()
         val newPreview = previewBuilder.build()
+        newPreview.setSurfaceProvider(binding.previewView.surfaceProvider)
         preview = newPreview
         useCases += newPreview
 
@@ -383,6 +472,7 @@ class MainActivity : AppCompatActivity() {
 
             val builder = VideoCapture.Builder(recorder).setTargetRotation(rotation)
             fpsRange?.let { builder.setTargetFrameRate(it) }
+            if (stabSupported && stabEnabled) builder.setVideoStabilizationEnabled(true)
 
             val newVideo = builder.build()
             videoCapture = newVideo
@@ -397,6 +487,14 @@ class MainActivity : AppCompatActivity() {
                 *useCases.drop(1).toTypedArray()
             )
             camera = bound
+
+            camera2Control = try {
+                Camera2CameraControl.from(bound.cameraControl)
+            } catch (e: Exception) {
+                Log.w(tag, "Camera2CameraControl tidak tersedia", e)
+                null
+            }
+            if (proEnabled) pushLiveProOptions()
 
             maxZoom = bound.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
             binding.btnZoom5.isVisible = maxZoom >= 5f
@@ -437,9 +535,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHud() {
         val resolusi = imageCapture?.resolutionInfo?.resolution?.let { "${it.width}x${it.height}" }
-        val fpsText = fpsRange?.let { "â‰¤${it.upper}fps" } ?: "auto"
-        val proText = if (proEnabled) "ISO $iso Â· ${formatShutter(shutterNs)}" else "AUTO"
-        binding.hudText.text = listOfNotNull(resolusi, fpsText, proText).joinToString(" Â· ")
+        val fpsText = fpsRange?.let { "~${it.upper}fps" } ?: "auto"
+        val proText = if (proEnabled) "ISO $iso · ${formatShutter(shutterNs)}" else "AUTO"
+        binding.hudText.text = listOfNotNull(resolusi, fpsText, proText).joinToString(" · ")
     }
 
     private fun showFpsDialog() {
@@ -449,7 +547,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val label = mutableListOf("Auto (bawaan kamera)")
-        fpsOptions.forEach { r -> label.add("${r.lower}â€“${r.upper} fps") }
+        fpsOptions.forEach { r -> label.add("${r.lower}–${r.upper} fps") }
 
         val checked = if (fpsRange == null) 0 else fpsOptions.indexOf(fpsRange) + 1
 
@@ -548,7 +646,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val waktu = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date())
-            kanvas.drawText("ProCam Â· $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
+            kanvas.drawText("ProCam · $waktu", bmp.width * 0.04f, bmp.height * 0.96f, cat)
 
             contentResolver.openOutputStream(uri, "w")?.use {
                 bmp.compress(Bitmap.CompressFormat.JPEG, 95, it)
@@ -743,7 +841,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatFocus(diopter: Float): String {
-        if (diopter <= 0.0001f) return "âˆž"
+        if (diopter <= 0.0001f) return "∞"
         val meter = 1f / diopter
         return if (meter >= 1f) String.format(Locale.US, "%.1f m", meter)
         else String.format(Locale.US, "%.0f cm", meter * 100)

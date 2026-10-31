@@ -12,7 +12,9 @@ Dibuat untuk Poco X7 Pro (Android 15 / HyperOS 2), tetapi berjalan di perangkat 
   - ISO manual (rentang dari `SENSOR_INFO_SENSITIVITY_RANGE`)
   - Shutter manual (dari `SENSOR_INFO_EXPOSURE_TIME_RANGE`), termasuk long exposure
   - Fokus manual dalam dioptri / meter (dari `LENS_INFO_MINIMUM_FOCUS_DISTANCE`)
-  - Diterapkan lewat Camera2Interop: `CONTROL_MODE_OFF`, `AE_MODE_OFF`, `AF_MODE_OFF`
+  - Perubahan langsung (live) saat slider digeser, tanpa rebind/restart preview
+  - Diterapkan lewat Camera2Interop + `Camera2CameraControl` (`CONTROL_MODE_OFF`, `AE_MODE_OFF`, `AF_MODE_OFF`)
+- **Stabilisasi video (EIS)** — chip `STAB ON/OFF` di mode VIDEO (aktif bila didukung kamera)
 - **Target FPS**
   - Daftar FPS diambil dari `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES`
   - Default = rentang dengan `upper` tertinggi (60/120 fps bila perangkat melaporkannya)
